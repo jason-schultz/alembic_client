@@ -116,18 +116,18 @@ impl Character {
 pub fn save_character(character: &Character) -> Result<(), std::io::Error> {
     let save_dir = std::path::Path::new("saves");
     std::fs::create_dir_all(save_dir)?;
-    
+
     let filename = format!("saves/{}.json", character.name);
     let json = serde_json::to_string_pretty(character)?;
     std::fs::write(filename, json)?;
-    
+
     Ok(())
 }
 
 pub fn load_all_characters() -> Vec<Character> {
     let save_dir = std::path::Path::new("saves");
     let mut characters = Vec::new();
-    
+
     if let Ok(entries) = std::fs::read_dir(save_dir) {
         for entry in entries.flatten() {
             if let Ok(content) = std::fs::read_to_string(entry.path()) {
@@ -137,7 +137,7 @@ pub fn load_all_characters() -> Vec<Character> {
             }
         }
     }
-    
+
     characters
 }
 

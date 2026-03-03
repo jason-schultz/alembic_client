@@ -34,7 +34,9 @@ impl Animation {
     }
 }
 
-pub fn load_zombie_animations(asset_server: &Res<AssetServer>) -> HashMap<AnimationState, Animation> {
+pub fn load_zombie_animations(
+    asset_server: &Res<AssetServer>,
+) -> HashMap<AnimationState, Animation> {
     let mut animations = HashMap::new();
 
     // Load idle animation (9 frames)
@@ -55,7 +57,7 @@ pub fn load_zombie_animations(asset_server: &Res<AssetServer>) -> HashMap<Animat
         .collect();
     animations.insert(AnimationState::Attack, Animation::new(attack_frames, 0.1));
 
-    // Load hurt animation (7 frames) 
+    // Load hurt animation (7 frames)
     let hurt_frames: Vec<Handle<Image>> = (0..7)
         .map(|i| asset_server.load(format!("ZombieOGA/hurt/__Zombie01_Hurt_{:03}.png", i)))
         .collect();
@@ -70,23 +72,20 @@ pub fn load_zombie_animations(asset_server: &Res<AssetServer>) -> HashMap<Animat
     animations
 }
 
-pub fn animate_sprites(
-    time: Res<Time>,
-    mut query: Query<(&mut AnimatedSprite, &mut Sprite)>,
-) {
+pub fn animate_sprites(time: Res<Time>, mut query: Query<(&mut AnimatedSprite, &mut Sprite)>) {
     for (mut animated, mut sprite) in &mut query {
         animated.timer.tick(time.delta());
 
         if animated.timer.just_finished() {
             let current_state = animated.current_state;
-            
+
             if let Some(animation) = animated.animations.get_mut(&current_state) {
                 // Advance to next frame
                 animation.current_frame = (animation.current_frame + 1) % animation.frames.len();
-                
+
                 // Clone the handle to avoid borrow issues
                 let frame_handle = animation.frames[animation.current_frame].clone();
-                
+
                 // Update sprite texture
                 sprite.image = frame_handle;
             }

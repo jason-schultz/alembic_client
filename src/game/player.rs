@@ -1,5 +1,5 @@
-use bevy::prelude::*;
 use super::animation::*;
+use bevy::prelude::*;
 
 #[derive(Component)]
 pub struct Player {
@@ -9,13 +9,10 @@ pub struct Player {
 #[derive(Component)]
 pub struct InGameEntity;
 
-pub fn spawn_player(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-) {
+pub fn spawn_player(mut commands: Commands, asset_server: Res<AssetServer>) {
     // Load all zombie animations
     let animations = load_zombie_animations(&asset_server);
-    
+
     // Get the first frame of idle animation
     let initial_frame = animations
         .get(&AnimationState::Idle)
@@ -29,8 +26,7 @@ pub fn spawn_player(
             image: initial_frame,
             ..default()
         },
-        Transform::from_xyz(0.0, 0.0, 1.0)
-            .with_scale(Vec3::splat(0.15)), // Scale down to 15%
+        Transform::from_xyz(0.0, 0.0, 1.0).with_scale(Vec3::splat(0.15)), // Scale down to 15%
         Player { speed: 150.0 },
         AnimatedSprite {
             current_state: AnimationState::Idle,
@@ -92,11 +88,11 @@ pub fn move_player(
             if animated.current_state != AnimationState::Attack || attack_finished {
                 animated.current_state = AnimationState::Walk;
             }
-            
+
             if direction.length() > 0.0 {
                 direction = direction.normalize();
                 transform.translation += direction * player.speed * time.delta_secs();
-                
+
                 // Flip sprite based on direction
                 if direction.x < 0.0 {
                     transform.scale.x = -0.15; // Face left

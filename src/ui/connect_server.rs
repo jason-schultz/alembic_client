@@ -1,5 +1,5 @@
-use bevy::prelude::*;
 use crate::ui::main_menu::GameState;
+use bevy::prelude::*;
 
 #[derive(Component)]
 pub struct ConnectServerUI;
@@ -29,7 +29,7 @@ impl Default for ConnectionState {
 
 pub fn setup_connect_server(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.insert_resource(ConnectionState::default());
-    
+
     // Background
     commands.spawn((
         Sprite {
@@ -40,7 +40,7 @@ pub fn setup_connect_server(mut commands: Commands, asset_server: Res<AssetServe
         Transform::from_xyz(0.0, 0.0, -1.0),
         ConnectServerUI,
     ));
-    
+
     // UI Container
     commands
         .spawn((
@@ -71,7 +71,7 @@ pub fn setup_connect_server(mut commands: Commands, asset_server: Res<AssetServe
 
             // Server info (fake for now)
             parent.spawn((
-                Text::new("Server: localhost:4000\nStatus: Ready"),
+                Text::new("Server: localhost:7777\nStatus: Ready"),
                 TextFont {
                     font_size: 24.0,
                     ..default()
@@ -160,6 +160,7 @@ pub fn connect_server_system(
     >,
     mut connection: ResMut<ConnectionState>,
     mut next_state: ResMut<NextState<GameState>>,
+    network: Res<crate::network::NetworkConnection>,
 ) {
     for (interaction, button, mut color) in &mut interaction_query {
         match *interaction {
@@ -167,7 +168,18 @@ pub fn connect_server_system(
                 *color = BackgroundColor(Color::srgb(0.3, 0.3, 0.4));
                 match button {
                     ConnectButton::Connect => {
-                        println!("Connecting to server...");
+                        let net = network.clone();
+                        std::thread::spawn(move || {
+                            match net.connect("127.0.0.1:7777") {
+                                Ok(_) => {
+                                    // Kick off the handshake immediately after TCP connect
+                                    if let Err(e) = net.send_handshake_request("alembic-client") {
+                                        println!("Handshake failed: {}", e);
+                                    }
+                                }
+                                Err(e) => println!("Connection failed: {}", e),
+                            }
+                        });
                         connection.connecting = true;
                         connection.progress = 0.0;
                     }
@@ -190,28 +202,32 @@ pub fn update_connection(
     time: Res<Time>,
     mut connection: ResMut<ConnectionState>,
     mut next_state: ResMut<NextState<GameState>>,
+    network: Res<crate::network::NetworkConnection>,
 ) {
     if connection.connecting {
         connection.timer.tick(time.delta());
-        
+
         if connection.timer.just_finished() {
-            connection.progress += 10.0;
-            
-            if connection.progress >= 100.0 {
+            if network.is_active() {
                 println!("Connected! Loading game...");
                 connection.connecting = false;
                 next_state.set(GameState::InGame);
             } else {
-                println!("Loading assets... {}%", connection.progress);
+                connection.progress += 10.0;
+                if connection.progress >= 100.0 {
+                    // Timed out
+                    println!("Connection timed out.");
+                    connection.connecting = false;
+                    connection.progress = 0.0;
+                } else {
+                    println!("Connecting... {}%", connection.progress);
+                }
             }
         }
     }
 }
 
-pub fn cleanup_connect_server(
-    mut commands: Commands,
-    query: Query<Entity, With<ConnectServerUI>>,
-) {
+pub fn cleanup_connect_server(mut commands: Commands, query: Query<Entity, With<ConnectServerUI>>) {
     commands.remove_resource::<ConnectionState>();
     for entity in &query {
         commands.entity(entity).despawn_recursive();

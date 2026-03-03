@@ -1,5 +1,5 @@
-use bevy::prelude::*;
 use crate::{game::player::InGameEntity, ui::main_menu::GameState};
+use bevy::prelude::*;
 
 #[derive(Component)]
 pub struct InGameUI;
@@ -7,10 +7,7 @@ pub struct InGameUI;
 #[derive(Component)]
 pub struct ChatBox;
 
-pub fn setup_in_game(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-) {
+pub fn setup_in_game(mut commands: Commands, asset_server: Res<AssetServer>) {
     // Game background (could be a tilemap later)
     commands.spawn((
         Sprite {
@@ -21,7 +18,7 @@ pub fn setup_in_game(
         Transform::from_xyz(0.0, 0.0, -2.0),
         InGameUI,
     ));
-    
+
     // Simple UI overlay
     commands
         .spawn((

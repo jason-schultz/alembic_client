@@ -1,15 +1,19 @@
-mod ui;
+mod auth;
 mod character;
 mod game;
+mod network;
+mod ui;
 
+use auth::AuthToken;
 use bevy::prelude::*;
-use ui::main_menu::*;
-use ui::load_character::*;
-use ui::create_character::*;
-use ui::connect_server::*;
-use ui::in_game::*;
-use game::player::*;
 use game::animation::*;
+use game::player::*;
+use network::{NetworkConnection, handshake_system, poll_network};
+use ui::connect_server::*;
+use ui::create_character::*;
+use ui::in_game::*;
+use ui::load_character::*;
+use ui::main_menu::*;
 
 fn main() {
     App::new()
@@ -21,6 +25,10 @@ fn main() {
             }),
             ..default()
         }))
+        .insert_resource(NetworkConnection::default())
+        .insert_resource(AuthToken {
+            token: "your-token-here".into(),
+        })
         .insert_resource(ClearColor(Color::srgb(0.05, 0.05, 0.1)))
         .init_state::<GameState>()
         .add_systems(Startup, setup)
@@ -42,7 +50,8 @@ fn main() {
         .add_systems(OnEnter(GameState::CreateCharacter), setup_create_character)
         .add_systems(
             Update,
-            (create_character_system, handle_name_input).run_if(in_state(GameState::CreateCharacter)),
+            (create_character_system, handle_name_input)
+                .run_if(in_state(GameState::CreateCharacter)),
         )
         .add_systems(OnExit(GameState::CreateCharacter), cleanup_create_character)
         // Connect to Server
@@ -56,8 +65,16 @@ fn main() {
         .add_systems(OnEnter(GameState::InGame), (setup_in_game, spawn_player))
         .add_systems(
             Update,
-            (move_player, animate_sprites, in_game_input, debug_animations).run_if(in_state(GameState::InGame)),
+            (
+                move_player,
+                animate_sprites,
+                in_game_input,
+                debug_animations,
+            )
+                .run_if(in_state(GameState::InGame)),
         )
         .add_systems(OnExit(GameState::InGame), cleanup_in_game)
+        .add_systems(Update, poll_network)
+        .add_systems(Update, handshake_system.after(poll_network))
         .run();
 }

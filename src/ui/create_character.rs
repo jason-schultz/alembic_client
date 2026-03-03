@@ -1,6 +1,6 @@
-use bevy::prelude::*;
 use crate::character::*;
 use crate::ui::main_menu::GameState;
+use bevy::prelude::*;
 
 #[derive(Component)]
 pub struct CreateCharacterUI;
@@ -92,7 +92,7 @@ pub struct PointsDisplay;
 
 pub fn setup_create_character(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.insert_resource(CharacterCreation::default());
-    
+
     // Background
     commands.spawn((
         Sprite {
@@ -103,7 +103,7 @@ pub fn setup_create_character(mut commands: Commands, asset_server: Res<AssetSer
         Transform::from_xyz(0.0, 0.0, -1.0),
         CreateCharacterUI,
     ));
-    
+
     // Main container
     commands
         .spawn((
@@ -415,11 +415,7 @@ fn create_attribute_row(parent: &mut ChildBuilder, attr_type: AttributeType) {
         });
 }
 
-fn create_action_button(
-    parent: &mut ChildBuilder,
-    text: &str,
-    button_type: CreateCharacterButton,
-) {
+fn create_action_button(parent: &mut ChildBuilder, text: &str, button_type: CreateCharacterButton) {
     parent
         .spawn((
             Button,
@@ -459,7 +455,7 @@ pub fn create_character_system(
         match *interaction {
             Interaction::Pressed => {
                 *color = BackgroundColor(Color::srgb(0.3, 0.3, 0.4));
-                
+
                 match button {
                     CreateCharacterButton::SelectRace(race) => {
                         creation.race = Some(*race);
@@ -496,7 +492,7 @@ pub fn create_character_system(
                                     level: 1,
                                     experience: 0,
                                 };
-                                
+
                                 if let Err(e) = save_character(&character) {
                                     println!("Error saving character: {}", e);
                                 } else {
@@ -535,7 +531,7 @@ fn update_displays(
         let value = attr_display.0.get_value(&creation.attributes);
         text.0 = value.to_string();
     }
-    
+
     // Update points display
     if let Ok(mut text) = points_display.get_single_mut() {
         text.0 = format!("Points Remaining: {}", creation.points_remaining);
@@ -551,10 +547,10 @@ pub fn handle_name_input(
     if keyboard.just_pressed(KeyCode::Backspace) {
         creation.name.pop();
     }
-    
+
     // This is simplified - in production you'd want proper text input
     // For now, you can set the name via console commands or use a proper text input crate
-    
+
     // Update display
     if let Ok(mut text) = text_query.get_single_mut() {
         if creation.name.is_empty() {

@@ -1,6 +1,6 @@
-use bevy::prelude::*;
 use crate::character::*;
 use crate::ui::main_menu::GameState;
+use bevy::prelude::*;
 
 #[derive(Component)]
 pub struct LoadCharacterUI;
@@ -14,7 +14,7 @@ pub enum LoadCharacterButton {
 
 pub fn setup_load_character(mut commands: Commands, asset_server: Res<AssetServer>) {
     let characters = load_all_characters();
-    
+
     // Background
     commands.spawn((
         Sprite {
@@ -25,7 +25,7 @@ pub fn setup_load_character(mut commands: Commands, asset_server: Res<AssetServe
         Transform::from_xyz(0.0, 0.0, -1.0),
         LoadCharacterUI,
     ));
-    
+
     // UI Container
     commands
         .spawn((
@@ -92,7 +92,11 @@ pub fn setup_load_character(mut commands: Commands, asset_server: Res<AssetServe
                     ..default()
                 })
                 .with_children(|parent| {
-                    create_nav_button(parent, "Create New Character", LoadCharacterButton::CreateNew);
+                    create_nav_button(
+                        parent,
+                        "Create New Character",
+                        LoadCharacterButton::CreateNew,
+                    );
                     create_nav_button(parent, "Back", LoadCharacterButton::Back);
                 });
         });
