@@ -1,25 +1,14 @@
-use crate::{game::player::InGameEntity, ui::main_menu::GameState};
 use bevy::prelude::*;
+
+use crate::game::player::InGameEntity;
+use crate::game::world::{WorldContext, WorldTile};
+use crate::network::NetworkCommand;
+use crate::ui::main_menu::GameState;
 
 #[derive(Component)]
 pub struct InGameUI;
 
-#[derive(Component)]
-pub struct ChatBox;
-
-pub fn setup_in_game(mut commands: Commands, asset_server: Res<AssetServer>) {
-    // Game background (could be a tilemap later)
-    commands.spawn((
-        Sprite {
-            color: Color::srgb(0.2, 0.3, 0.2), // Green-ish ground
-            custom_size: Some(Vec2::new(2000.0, 2000.0)),
-            ..default()
-        },
-        Transform::from_xyz(0.0, 0.0, -2.0),
-        InGameUI,
-    ));
-
-    // Simple UI overlay
+pub fn setup_in_game(mut commands: Commands) {
     commands
         .spawn((
             Node {
@@ -33,7 +22,7 @@ pub fn setup_in_game(mut commands: Commands, asset_server: Res<AssetServer>) {
             InGameUI,
         ))
         .with_children(|parent| {
-            // Top bar - character info
+            // Top bar
             parent
                 .spawn(Node {
                     padding: UiRect::all(Val::Px(10.0)),
@@ -42,15 +31,12 @@ pub fn setup_in_game(mut commands: Commands, asset_server: Res<AssetServer>) {
                 .with_children(|parent| {
                     parent.spawn((
                         Text::new("Character: Hero | Level: 1 | HP: 100/100"),
-                        TextFont {
-                            font_size: 20.0,
-                            ..default()
-                        },
+                        TextFont { font_size: 20.0, ..default() },
                         TextColor(Color::srgb(0.9, 0.9, 0.9)),
                     ));
                 });
 
-            // Bottom chat/command area
+            // Bottom chat area
             parent
                 .spawn((
                     Node {
@@ -61,15 +47,13 @@ pub fn setup_in_game(mut commands: Commands, asset_server: Res<AssetServer>) {
                         ..default()
                     },
                     BackgroundColor(Color::srgba(0.1, 0.1, 0.1, 0.8)),
-                    ChatBox,
                 ))
                 .with_children(|parent| {
                     parent.spawn((
-                        Text::new("Welcome to Alembic!\nUse WASD or Arrow keys to move.\nPress ESC to return to menu."),
-                        TextFont {
-                            font_size: 16.0,
-                            ..default()
-                        },
+                        Text::new(
+                            "Welcome to Alembic!\nUse WASD or arrow keys to move.\nPress ESC to disconnect.",
+                        ),
+                        TextFont { font_size: 16.0, ..default() },
                         TextColor(Color::srgb(0.8, 0.8, 0.8)),
                     ));
                 });
@@ -79,8 +63,10 @@ pub fn setup_in_game(mut commands: Commands, asset_server: Res<AssetServer>) {
 pub fn in_game_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut next_state: ResMut<NextState<GameState>>,
+    mut network_commands: EventWriter<NetworkCommand>,
 ) {
     if keyboard.just_pressed(KeyCode::Escape) {
+        network_commands.send(NetworkCommand::Disconnect);
         next_state.set(GameState::MainMenu);
     }
 }
@@ -89,12 +75,16 @@ pub fn cleanup_in_game(
     mut commands: Commands,
     ui_query: Query<Entity, With<InGameUI>>,
     game_query: Query<Entity, With<InGameEntity>>,
+    tile_query: Query<Entity, With<WorldTile>>,
+    mut world_ctx: ResMut<WorldContext>,
 ) {
-    for entity in &ui_query {
-        commands.entity(entity).despawn_recursive();
-    }
+    world_ctx.tile_entities.clear(); // ← add this
 
-    for entity in &game_query {
+    for entity in ui_query
+        .iter()
+        .chain(game_query.iter())
+        .chain(tile_query.iter())
+    {
         commands.entity(entity).despawn_recursive();
     }
 }

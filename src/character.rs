@@ -1,4 +1,3 @@
-use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -9,6 +8,10 @@ pub struct Character {
     pub attributes: Attributes,
     pub level: u32,
     pub experience: u32,
+    #[serde(default)]
+    pub sprite_id: Option<String>,
+    #[serde(default)]
+    pub world_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -108,27 +111,35 @@ impl Character {
             attributes: Attributes::default(),
             level: 1,
             experience: 0,
+            sprite_id: None,
+            world_id: None,
         }
     }
 }
 
 // Character storage/saving
 pub fn save_character(character: &Character) -> Result<(), std::io::Error> {
-    let save_dir = std::path::Path::new("saves");
-    std::fs::create_dir_all(save_dir)?;
+    let save_dir = format!(
+        "saves/{}",
+        character
+            .world_id
+            .clone()
+            .unwrap_or_else(|| "default".to_string())
+    );
+    std::fs::create_dir_all(&save_dir)?;
 
-    let filename = format!("saves/{}.json", character.name);
+    let filename = format!("{}/{}.json", save_dir, character.name);
     let json = serde_json::to_string_pretty(character)?;
     std::fs::write(filename, json)?;
 
     Ok(())
 }
 
-pub fn load_all_characters() -> Vec<Character> {
-    let save_dir = std::path::Path::new("saves");
+pub fn load_characters_for_world(world_id: &str) -> Vec<Character> {
+    let save_dir = std::path::Path::new("saves").join(world_id);
     let mut characters = Vec::new();
 
-    if let Ok(entries) = std::fs::read_dir(save_dir) {
+    if let Ok(entries) = std::fs::read_dir(&save_dir) {
         for entry in entries.flatten() {
             if let Ok(content) = std::fs::read_to_string(entry.path()) {
                 if let Ok(character) = serde_json::from_str::<Character>(&content) {
@@ -141,8 +152,8 @@ pub fn load_all_characters() -> Vec<Character> {
     characters
 }
 
-pub fn delete_character(name: &str) -> Result<(), std::io::Error> {
-    let filename = format!("saves/{}.json", name);
+pub fn delete_character(world_id: &str, name: &str) -> Result<(), std::io::Error> {
+    let filename = format!("saves/{}/{}.json", world_id, name);
     std::fs::remove_file(filename)?;
     Ok(())
 }

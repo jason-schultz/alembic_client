@@ -4,9 +4,12 @@ use bevy::prelude::*;
 pub enum GameState {
     #[default]
     MainMenu,
-    LoadCharacter,
+    ServerList,
+    Connecting,
+    WorldSelect,
+    DownloadingAssets,
+    CharacterSelect,
     CreateCharacter,
-    ConnectToServer,
     InGame,
 }
 
@@ -15,9 +18,7 @@ pub struct MainMenuUI;
 
 #[derive(Component)]
 pub enum MenuButton {
-    LoadCharacter,
-    CreateCharacter,
-    ConnectServer,
+    Play,
     Quit,
 }
 
@@ -27,8 +28,14 @@ pub struct AnimatedTorch {
     frame_count: usize,
 }
 
-pub fn setup(mut commands: Commands) {
-    commands.spawn(Camera2d::default());
+pub fn setup_camera(mut commands: Commands) {
+    commands.spawn((Camera2d::default(), Transform::from_xyz(0.0, 0.0, 0.0)));
+}
+
+pub fn reset_camera(mut query: Query<&mut Transform, With<Camera2d>>) {
+    if let Ok(mut transform) = query.get_single_mut() {
+        transform.translation = Vec3::ZERO;
+    }
 }
 
 pub fn setup_main_menu(
@@ -36,60 +43,51 @@ pub fn setup_main_menu(
     asset_server: Res<AssetServer>,
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
 ) {
-    // Background Image
+    // Full-screen background via UI ImageNode — scales with window
     commands.spawn((
-        Sprite {
-            image: asset_server.load("Stontex.png"),
-            custom_size: Some(Vec2::new(1200., 800.)),
+        Node {
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            position_type: PositionType::Absolute,
             ..default()
         },
-        Transform::from_translation(Vec3::new(0., 0., -1.)),
+        ImageNode {
+            image: asset_server.load("Stontex.png"),
+            ..default()
+        },
+        ZIndex(-1),
         MainMenuUI,
     ));
 
-    // Load torch sprite sheet
+    // Torches
     let torch_texture = asset_server.load("animated_torch.png");
-
-    // Create texture atlas layout - 9 frames in a row
-    // Adjust columns/rows based on how the sprite sheet is laid out
-    let layout = TextureAtlasLayout::from_grid(UVec2::new(32, 64), 9, 1, None, None);
-    let texture_atlas_layout = texture_atlas_layouts.add(layout);
-
-    // Left Torch
-    commands.spawn((
-        Sprite::from_atlas_image(
-            torch_texture.clone(),
-            TextureAtlas {
-                layout: texture_atlas_layout.clone(),
-                index: 0,
-            },
-        ),
-        Transform::from_xyz(-300.0, 0.0, 0.0).with_scale(Vec3::splat(3.0)),
-        AnimatedTorch {
-            timer: Timer::from_seconds(0.15, TimerMode::Repeating),
-            frame_count: 9,
-        },
-        MainMenuUI,
+    let layout = texture_atlas_layouts.add(TextureAtlasLayout::from_grid(
+        UVec2::new(32, 64),
+        9,
+        1,
+        None,
+        None,
     ));
 
-    // Right Torch
-    commands.spawn((
-        Sprite::from_atlas_image(
-            torch_texture.clone(),
-            TextureAtlas {
-                layout: texture_atlas_layout.clone(),
-                index: 0,
+    for x in [-300.0f32, 300.0] {
+        commands.spawn((
+            Sprite::from_atlas_image(
+                torch_texture.clone(),
+                TextureAtlas {
+                    layout: layout.clone(),
+                    index: 0,
+                },
+            ),
+            Transform::from_xyz(x, 0.0, 0.0).with_scale(Vec3::splat(3.0)),
+            AnimatedTorch {
+                timer: Timer::from_seconds(0.15, TimerMode::Repeating),
+                frame_count: 9,
             },
-        ),
-        Transform::from_xyz(300.0, 0.0, 0.0).with_scale(Vec3::splat(3.0)),
-        AnimatedTorch {
-            timer: Timer::from_seconds(0.15, TimerMode::Repeating),
-            frame_count: 9, // Adjust based on your sprite sheet
-        },
-        MainMenuUI,
-    ));
+            MainMenuUI,
+        ));
+    }
 
-    // Root container
+    // Root UI
     commands
         .spawn((
             Node {
@@ -103,7 +101,6 @@ pub fn setup_main_menu(
             MainMenuUI,
         ))
         .with_children(|parent| {
-            // Title
             parent.spawn((
                 Text::new("Alembic"),
                 TextFont {
@@ -112,14 +109,13 @@ pub fn setup_main_menu(
                 },
                 TextColor(Color::srgb(0.9, 0.9, 0.9)),
                 Node {
-                    margin: UiRect::bottom(Val::Px(50.0)),
+                    margin: UiRect::bottom(Val::Px(20.0)),
                     ..default()
                 },
             ));
 
-            // Subtitle
             parent.spawn((
-                Text::new("Multi-User Dungeon Client"),
+                Text::new("A Tabletop RPG Campaign Client"),
                 TextFont {
                     font_size: 24.0,
                     ..default()
@@ -131,7 +127,6 @@ pub fn setup_main_menu(
                 },
             ));
 
-            // Button container
             parent
                 .spawn(Node {
                     flex_direction: FlexDirection::Column,
@@ -140,15 +135,13 @@ pub fn setup_main_menu(
                     ..default()
                 })
                 .with_children(|parent| {
-                    create_menu_button(parent, "Load Character", MenuButton::LoadCharacter);
-                    create_menu_button(parent, "Create New Character", MenuButton::CreateCharacter);
-                    create_menu_button(parent, "Connect to Server", MenuButton::ConnectServer);
-                    create_menu_button(parent, "Quit", MenuButton::Quit);
+                    spawn_menu_button(parent, "Play", MenuButton::Play);
+                    spawn_menu_button(parent, "Quit", MenuButton::Quit);
                 });
         });
 }
 
-pub fn create_menu_button(parent: &mut ChildBuilder, text: &str, button_type: MenuButton) {
+pub fn spawn_menu_button(parent: &mut ChildBuilder, label: &str, button_type: MenuButton) {
     parent
         .spawn((
             Button,
@@ -164,7 +157,7 @@ pub fn create_menu_button(parent: &mut ChildBuilder, text: &str, button_type: Me
         ))
         .with_children(|parent| {
             parent.spawn((
-                Text::new(text),
+                Text::new(label),
                 TextFont {
                     font_size: 24.0,
                     ..default()
@@ -187,29 +180,14 @@ pub fn main_menu_system(
             Interaction::Pressed => {
                 *color = BackgroundColor(Color::srgb(0.3, 0.3, 0.4));
                 match button {
-                    MenuButton::LoadCharacter => {
-                        println!("Load Character selected");
-                        next_state.set(GameState::LoadCharacter);
-                    }
-                    MenuButton::CreateCharacter => {
-                        println!("Create Character selected");
-                        next_state.set(GameState::CreateCharacter);
-                    }
-                    MenuButton::ConnectServer => {
-                        println!("Connect to Server selected");
-                        next_state.set(GameState::ConnectToServer);
-                    }
+                    MenuButton::Play => next_state.set(GameState::ServerList),
                     MenuButton::Quit => {
                         exit.send(AppExit::Success);
                     }
                 }
             }
-            Interaction::Hovered => {
-                *color = BackgroundColor(Color::srgb(0.25, 0.25, 0.35));
-            }
-            Interaction::None => {
-                *color = BackgroundColor(Color::srgb(0.15, 0.15, 0.2));
-            }
+            Interaction::Hovered => *color = BackgroundColor(Color::srgb(0.25, 0.25, 0.35)),
+            Interaction::None => *color = BackgroundColor(Color::srgb(0.15, 0.15, 0.2)),
         }
     }
 }
