@@ -1,16 +1,26 @@
 use bevy::prelude::*;
 use std::collections::HashMap;
 
+use crate::asset_cache::AnimationDef;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum AnimationState {
     #[default]
     Idle,
+    IdleSouth,
+    IdleNorth,
+    IdleEast,
+    IdleWest,
     Walk,
     WalkNorth,
     WalkSouth,
     WalkEast,
     WalkWest,
     Attack,
+    AttackSouth,
+    AttackNorth,
+    AttackEast,
+    AttackWest,
     Hurt,
     Dead,
 }
@@ -21,6 +31,7 @@ pub struct Animation {
     pub frames: AnimationFrames,
     pub current_frame: usize,
     pub frame_time: f32,
+    pub flip_x: bool,
 }
 
 #[derive(Clone)]
@@ -40,6 +51,7 @@ impl Animation {
             frames: AnimationFrames::Individual(frames),
             current_frame: 0,
             frame_time,
+            flip_x: false,
         }
     }
 
@@ -48,6 +60,7 @@ impl Animation {
             frames: AnimationFrames::Sheet { image, rects },
             current_frame: 0,
             frame_time,
+            flip_x: false,
         }
     }
 
@@ -81,81 +94,60 @@ pub struct AnimatedSprite {
 }
 
 // ── Sprite sheet animations (paper doll characters) ──────────────────────────
-//
-// Sheet layout for the character PNGs (144x256, 3 cols x 4 rows, 48x64 each):
-//
-//   Row 0 (y=0):   Front idle, Front walk-1, Front walk-2
-//   Row 1 (y=64):  Side  idle, Side  walk-1, Side  walk-2
-//   Row 2 (y=128): Back  idle, Back  walk-1, Back  walk-2
-//   Row 3 (y=192): Side2 idle, Side2 walk-1, Side2 walk-2
-//
-// For now we map:
-//   Idle  → front idle (col 0, row 0)
-//   Walk  → front walk cycle (cols 0-2, row 0)
-//   Other states fall back to idle
 
-pub fn load_sheet_animations(image: Handle<Image>) -> HashMap<AnimationState, Animation> {
+/// Maps a manifest animation key to its AnimationState variant.
+fn key_to_state(key: &str) -> Option<AnimationState> {
+    match key {
+        "idle_south"   => Some(AnimationState::IdleSouth),
+        "idle_north"   => Some(AnimationState::IdleNorth),
+        "idle_east"    => Some(AnimationState::IdleEast),
+        "idle_west"    => Some(AnimationState::IdleWest),
+        "walk_south"   => Some(AnimationState::WalkSouth),
+        "walk_north"   => Some(AnimationState::WalkNorth),
+        "walk_east"    => Some(AnimationState::WalkEast),
+        "walk_west"    => Some(AnimationState::WalkWest),
+        "attack_south" => Some(AnimationState::AttackSouth),
+        "attack_north" => Some(AnimationState::AttackNorth),
+        "attack_east"  => Some(AnimationState::AttackEast),
+        "attack_west"  => Some(AnimationState::AttackWest),
+        "dying"        => Some(AnimationState::Dead),
+        _ => None,
+    }
+}
+
+/// Builds the animation map from manifest-provided AnimationDefs.
+pub fn load_animations_from_manifest(
+    image: Handle<Image>,
+    cell_width: u32,
+    cell_height: u32,
+    defs: &HashMap<String, AnimationDef>,
+) -> HashMap<AnimationState, Animation> {
+    let fw = cell_width as f32;
+    let fh = cell_height as f32;
+
     let mut animations = HashMap::new();
-    let fw = 48.0_f32;
-    let fh = 64.0_f32;
 
-    let rect = |col: u32, row: u32| bevy::math::Rect {
-        min: Vec2::new(col as f32 * fw, row as f32 * fh),
-        max: Vec2::new((col + 1) as f32 * fw, (row + 1) as f32 * fh),
-    };
+    for (key, def) in defs {
+        let Some(state) = key_to_state(key) else { continue };
 
-    // Row 0: South
-    animations.insert(
-        AnimationState::WalkSouth,
-        Animation::from_sheet(
-            image.clone(),
-            vec![rect(0, 0), rect(1, 0), rect(2, 0)],
-            0.18,
-        ),
-    );
-    // Row 1: West
-    animations.insert(
-        AnimationState::WalkWest,
-        Animation::from_sheet(
-            image.clone(),
-            vec![rect(0, 1), rect(1, 1), rect(2, 1)],
-            0.18,
-        ),
-    );
-    // Row 2: North
-    animations.insert(
-        AnimationState::WalkNorth,
-        Animation::from_sheet(
-            image.clone(),
-            vec![rect(0, 2), rect(1, 2), rect(2, 2)],
-            0.18,
-        ),
-    );
-    // Row 3: East
-    animations.insert(
-        AnimationState::WalkEast,
-        Animation::from_sheet(
-            image.clone(),
-            vec![rect(0, 3), rect(1, 3), rect(2, 3)],
-            0.18,
-        ),
-    );
+        let rects: Vec<bevy::math::Rect> = (0..def.frames)
+            .map(|i| {
+                let col = def.start_col + i;
+                bevy::math::Rect {
+                    min: Vec2::new(col as f32 * fw, def.row as f32 * fh),
+                    max: Vec2::new((col + 1) as f32 * fw, (def.row + 1) as f32 * fh),
+                }
+            })
+            .collect();
 
-    // Idle — south facing col 0
-    animations.insert(
-        AnimationState::Idle,
-        Animation::from_sheet(image.clone(), vec![rect(0, 0)], 0.5),
-    );
+        let mut anim = Animation::from_sheet(image.clone(), rects, def.frame_time);
+        anim.flip_x = def.flip_x;
+        animations.insert(state, anim);
+    }
 
-    for state in [
-        AnimationState::Attack,
-        AnimationState::Hurt,
-        AnimationState::Dead,
-    ] {
-        animations.insert(
-            state,
-            Animation::from_sheet(image.clone(), vec![rect(0, 0)], 0.5),
-        );
+    // Alias: Idle → IdleSouth so the default state always resolves
+    if let Some(idle_south) = animations.get(&AnimationState::IdleSouth).cloned() {
+        animations.insert(AnimationState::Idle, idle_south);
     }
 
     animations
@@ -176,6 +168,7 @@ pub fn animate_sprites(time: Res<Time>, mut query: Query<(&mut AnimatedSprite, &
         if let Some(animation) = animated.animations.get_mut(&current_state) {
             animation.current_frame = (animation.current_frame + 1) % animation.frame_count();
 
+            sprite.flip_x = animation.flip_x;
             match &animation.frames {
                 AnimationFrames::Individual(frames) => {
                     sprite.image = frames[animation.current_frame].clone();

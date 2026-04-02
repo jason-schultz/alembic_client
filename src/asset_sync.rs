@@ -3,14 +3,14 @@ use std::path::PathBuf;
 use std::sync::{mpsc, Mutex};
 use std::thread;
 
-use crate::asset_cache::{fetch_world_manifest, sync_sprite_cache, sync_tile_cache};
+use crate::asset_cache::{SpritesheetEntry, TilesetEntry, fetch_world_manifest, sync_sprite_cache, sync_tile_cache};
 use crate::available_sprites::{AvailableSprites, SpritesFailed, SpritesReady};
-use crate::tile_textures::TileTextures;
+use crate::tile_textures::TileAtlases;
 
 /// Combined result sent back from the background download thread.
 pub struct AssetSyncResult {
-    pub sprites: Vec<(String, PathBuf)>,
-    pub tiles: Vec<(String, PathBuf)>,
+    pub sprites: Vec<(SpritesheetEntry, PathBuf)>,
+    pub tiles: Vec<(TilesetEntry, PathBuf)>,
 }
 
 /// Channel used to receive download results from the background thread.
@@ -37,12 +37,12 @@ pub fn start_world_asset_sync(
         let result = match fetch_world_manifest(&http_base, &world_id) {
             Ok(manifest) => {
                 let tiles =
-                    sync_tile_cache(&http_base, &server_addr, &world_id, &manifest.tiles);
+                    sync_tile_cache(&http_base, &server_addr, &world_id, &manifest.tilesets);
                 let sprites = sync_sprite_cache(
                     &http_base,
                     &server_addr,
                     &world_id,
-                    &manifest.sprites.characters,
+                    &manifest.spritesheets,
                 );
                 Ok(AssetSyncResult { sprites, tiles })
             }
@@ -96,38 +96,54 @@ pub fn poll_asset_sync(
 pub fn handle_sprites_ready(
     mut events: EventReader<SpritesReady>,
     mut available: ResMut<AvailableSprites>,
-    mut tile_textures: ResMut<TileTextures>,
+    mut tile_atlases: ResMut<TileAtlases>,
+    mut atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
     asset_server: Res<AssetServer>,
 ) {
     for event in events.read() {
         available.sprites = event
             .sprites
             .iter()
-            .map(|(id, path)| crate::available_sprites::AvailableSprite {
-                id: id.clone(),
+            .map(|(entry, path)| crate::available_sprites::AvailableSprite {
+                id: entry.id.clone(),
                 local_path: path.clone(),
                 handle: Some(asset_server.load(path.to_string_lossy().to_string())),
+                cell_width: entry.cell_width,
+                cell_height: entry.cell_height,
+                animations: entry.animations.clone(),
             })
             .collect();
         available.loaded = true;
         available.loading = false;
 
-        tile_textures.textures = event
-            .tiles
-            .iter()
-            .map(|(id, path)| {
-                (
-                    id.clone(),
-                    asset_server.load(path.to_string_lossy().to_string()),
-                )
-            })
-            .collect();
-        tile_textures.loaded = true;
+        for (entry, path) in &event.tiles {
+            info!("TileAtlases: {} atlases, {} labels", tile_atlases.atlases.len(), tile_atlases.label_lookup.len());
+
+            let image_handle = asset_server.load(path.to_string_lossy().to_string());
+            let layout = TextureAtlasLayout::from_grid(
+                UVec2::new(entry.tile_width, entry.tile_height),
+                entry.columns,
+                entry.rows,
+                None,
+                None,
+            );
+            let layout_handle = atlas_layouts.add(layout);
+            tile_atlases
+                .atlases
+                .insert(entry.id.clone(), (layout_handle, image_handle));
+
+            for(label, coords) in &entry.tile_labels {
+                let index = (coords[1] * entry.columns + coords[0]) as usize;
+                let key = format!("{}.{}", entry.id, label);
+                tile_atlases.label_lookup.insert(key, (entry.id.clone(), index));
+            }
+        }
+        tile_atlases.loaded = true;
 
         info!(
             "Loaded {} character sprites and {} tiles from cache",
             available.sprites.len(),
-            tile_textures.textures.len()
+            tile_atlases.atlases.len()
         );
     }
 }

@@ -45,6 +45,7 @@ use ui::world_select::{
 use crate::asset_sync::{handle_sprites_ready, poll_asset_sync};
 use crate::available_sprites::{AvailableSprites, SpritesFailed, SpritesReady};
 use crate::game::player::{apply_player_sprite, camera_follow, send_movement, setup_movement};
+use crate::tile_textures::TileAtlases;
 use crate::ui::animate_spinner;
 use crate::ui::create_character::{
     CursorBlink, blink_cursor, handle_name_input, populate_sprite_selection, sync_next_button,
@@ -53,14 +54,17 @@ use crate::ui::create_character::{
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "Alembic".to_string(),
-                resolution: (1200.0, 800.0).into(),
+        .add_plugins(DefaultPlugins
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "Alembic".to_string(),
+                    resolution: (1200.0, 800.0).into(),
+                    ..default()
+                }),
                 ..default()
-            }),
-            ..default()
-        }))
+            })
+            .set(ImagePlugin::default_nearest())
+        )
         .insert_resource(AuthToken {
             token: "your-token-here".into(),
         })
@@ -69,6 +73,7 @@ fn main() {
         .insert_resource(AvailableSprites::default())
         .insert_resource(TileTextures::default())
         .insert_resource(CursorBlink::default())
+        .init_resource::<TileAtlases>()
         .add_event::<SpritesReady>()
         .add_event::<SpritesFailed>()
         .add_plugins(NetworkPlugin)
