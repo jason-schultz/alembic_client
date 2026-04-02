@@ -1,5 +1,8 @@
 use bevy::prelude::*;
+use std::collections::HashMap;
 use std::path::PathBuf;
+
+use crate::asset_cache::{AnimationDef, TilesetEntry, SpritesheetEntry};
 
 /// A character sprite available for selection, with its local cached path.
 #[derive(Debug, Clone)]
@@ -8,6 +11,9 @@ pub struct AvailableSprite {
     pub local_path: PathBuf,
     /// Bevy handle — loaded once the asset is ready
     pub handle: Option<Handle<Image>>,
+    pub cell_width: u32,
+    pub cell_height: u32,
+    pub animations: HashMap<String, AnimationDef>,
 }
 
 /// Holds all character sprites downloaded from the current server.
@@ -32,8 +38,8 @@ impl AvailableSprites {
 /// Fired when sprite downloading completes (from background thread).
 #[derive(Event)]
 pub struct SpritesReady {
-    pub sprites: Vec<(String, PathBuf)>,
-    pub tiles: Vec<(String, PathBuf)>,
+    pub sprites: Vec<(SpritesheetEntry, PathBuf)>,
+    pub tiles: Vec<(TilesetEntry, PathBuf)>,
 }
 
 /// Fired when sprite downloading fails.

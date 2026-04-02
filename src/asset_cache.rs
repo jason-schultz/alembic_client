@@ -1,6 +1,9 @@
+use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::PathBuf;
+
+use bevy::log::info;
 
 const MAX_ASSET_SIZE_BYTES: usize = 10 * 1024 * 1024; // 10 MB
 const PNG_MAGIC: &[u8] = &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
@@ -10,35 +13,58 @@ const JPEG_MAGIC: &[u8] = &[0xFF, 0xD8, 0xFF];
 
 #[derive(Debug, serde::Deserialize)]
 pub struct WorldManifest {
-    pub tiles: Vec<TileAssetEntry>,
-    pub sprites: SpriteManifest,
+    pub tilesets: Vec<TilesetEntry>,
+    pub spritesheets: Vec<SpritesheetEntry>,
+    pub npc_sprites: Vec<SpritesheetEntry>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-pub struct SpriteManifest {
-    pub characters: Vec<CharacterSpriteEntry>,
-    #[serde(default)]
-    pub npcs: Vec<AssetEntry>,
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct TileAssetEntry {
-    pub id: String,
-    pub file: String,
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct CharacterSpriteEntry {
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize)]
+pub struct TilesetEntry {
     pub id: String,
     pub filename: String,
     pub url: String,
+    pub columns: u32,
+    pub rows: u32,
+    pub image_width: u32,
+    pub image_height: u32,
+    pub tile_width: u32,
+    pub tile_height: u32,
+    #[serde(default)]
+    pub tile_labels: HashMap<String, [u32; 2]>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
-pub struct AssetEntry {
+pub struct SpritesheetEntry {
     pub id: String,
-    pub file: String,
+    pub filename: String,
+    pub url: String,
+    pub columns: u32,
+    pub rows: u32,
+    pub image_width: u32,
+    pub image_height: u32,
+    pub cell_width: u32,
+    pub cell_height: u32,
+    #[serde(default)]
+    pub animations: HashMap<String, AnimationDef>,
 }
+
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct AnimationDef {
+    pub row: u32,
+    pub frames: u32,
+    #[serde(default = "default_frame_time")]
+    pub frame_time: f32,
+    #[serde(default)]
+    pub flip_x: bool,
+    #[serde(default)]
+    pub start_col: u32,
+    #[serde(default = "default_true")]
+    pub looping: bool,
+}
+
+fn default_true() -> bool { true }
+fn default_frame_time() -> f32 { 0.12 }
+
 
 // ── Sanitization ──────────────────────────────────────────────────────────────
 
@@ -177,7 +203,11 @@ pub fn fetch_world_manifest(
 ) -> Result<WorldManifest, Box<dyn std::error::Error>> {
     let url = format!("{}/worlds/{}/manifest", base_url, world_id);
     let response = ureq::get(&url).call()?;
-    let manifest: WorldManifest = response.into_json()?;
+    let body = response.into_string()?;
+    let manifest: WorldManifest = serde_json::from_str(&body)?;
+
+    info!("Manifest: {} tilesets, {} spritesheets, {} npc sprites", manifest.tilesets.len(), manifest.spritesheets.len(), manifest.npc_sprites.len());
+
     Ok(manifest)
 }
 
@@ -207,7 +237,7 @@ pub fn ensure_sprite_cached(
     base_url: &str,
     server_addr: &str,
     world_id: &str,
-    entry: &CharacterSpriteEntry,
+    entry: &SpritesheetEntry,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
     sanitize_path_component(world_id)
         .ok_or_else(|| format!("Rejected unsafe world_id: '{}'", world_id))?;
@@ -243,12 +273,12 @@ pub fn sync_sprite_cache(
     base_url: &str,
     server_addr: &str,
     world_id: &str,
-    entries: &[CharacterSpriteEntry],
-) -> Vec<(String, PathBuf)> {
+    entries: &[SpritesheetEntry],
+) -> Vec<(SpritesheetEntry, PathBuf)> {
     let mut results = Vec::new();
     for entry in entries {
         match ensure_sprite_cached(base_url, server_addr, world_id, entry) {
-            Ok(path) => results.push((entry.id.clone(), path)),
+            Ok(path) => results.push((entry.clone(), path)),
             Err(e) => eprintln!("Failed to cache sprite {}: {e}", entry.id),
         }
     }
@@ -262,18 +292,18 @@ pub fn ensure_tile_cached(
     base_url: &str,
     server_addr: &str,
     world_id: &str,
-    entry: &TileAssetEntry,
+    entry: &TilesetEntry,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
     sanitize_path_component(world_id)
         .ok_or_else(|| format!("Rejected unsafe world_id: '{}'", world_id))?;
 
     // Validate the relative path for URL construction before using it
-    sanitize_asset_path(&entry.file)
-        .ok_or_else(|| format!("Rejected unsafe tile path: '{}'", entry.file))?;
+    sanitize_asset_path(&entry.filename)
+        .ok_or_else(|| format!("Rejected unsafe tile path: '{}'", entry.filename))?;
 
     // Store only the basename locally — tile_cache_dir already provides the directory
-    let safe_filename = sanitize_filename(&entry.file)
-        .ok_or_else(|| format!("Rejected unsafe tile filename: '{}'", entry.file))?;
+    let safe_filename = sanitize_filename(&entry.filename)
+        .ok_or_else(|| format!("Rejected unsafe tile filename: '{}'", entry.filename))?;
 
     let cache_dir = tile_cache_dir_for_server(server_addr, world_id);
     let local_path = cache_dir.join(&safe_filename);
@@ -285,7 +315,7 @@ pub fn ensure_tile_cached(
     fs::create_dir_all(&cache_dir)?;
 
     // file is a relative path: "tiles/grass_01.png"
-    let url = format!("{}/worlds/{}/assets/{}", base_url, world_id, entry.file);
+    let url = format!("{}/worlds/{}/assets/{}", base_url, world_id, entry.filename);
     let bytes = download_asset(&url)?;
 
     if !validate_image_magic(&bytes, &safe_filename) {
@@ -303,12 +333,12 @@ pub fn sync_tile_cache(
     base_url: &str,
     server_addr: &str,
     world_id: &str,
-    entries: &[TileAssetEntry],
-) -> Vec<(String, PathBuf)> {
+    entries: &[TilesetEntry],
+) -> Vec<(TilesetEntry, PathBuf)> {
     let mut results = Vec::new();
     for entry in entries {
         match ensure_tile_cached(base_url, server_addr, world_id, entry) {
-            Ok(path) => results.push((entry.id.clone(), path)),
+            Ok(path) => results.push((entry.clone(), path)),
             Err(e) => eprintln!("Failed to cache tile {}: {e}", entry.id),
         }
     }

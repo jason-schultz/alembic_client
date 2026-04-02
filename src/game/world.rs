@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use bevy::prelude::*;
 
 use crate::network::{NetworkEvent, TileData};
-use crate::tile_textures::TileTextures;
+use crate::tile_textures::{TileAtlases, TileTextures};
 
 #[derive(Resource, Default)]
 pub struct WorldContext {
@@ -26,7 +26,7 @@ pub fn handle_world_events(
     mut events: EventReader<NetworkEvent>,
     mut world_ctx: ResMut<WorldContext>,
     mut commands: Commands,
-    tile_textures: Res<TileTextures>,
+    tile_atlases: Res<TileAtlases>,
 ) {
     for event in events.read() {
         match event {
@@ -56,7 +56,7 @@ pub fn handle_world_events(
             }
 
             NetworkEvent::ViewportUpdate { tiles, .. } => {
-                update_tiles(&mut commands, &mut world_ctx, tiles, &tile_textures);
+                update_tiles(&mut commands, &mut world_ctx, tiles, &tile_atlases);
             }
 
             _ => {}
@@ -66,14 +66,29 @@ pub fn handle_world_events(
 
 /// Returns a textured sprite if the tile has a loaded handle, otherwise a
 /// colored fallback so the game stays playable while assets are missing.
-fn tile_sprite(asset_id: &str, tile_textures: &TileTextures) -> Sprite {
-    if let Some(handle) = tile_textures.textures.get(asset_id) {
-        Sprite {
-            image: handle.clone(),
-            custom_size: Some(Vec2::splat(TILE_SIZE)),
-            ..default()
+fn tile_sprite(asset_id: &str, tile_atlases: &TileAtlases) -> Sprite {
+    if let Some((tileset_id, index)) = tile_atlases.label_lookup.get(asset_id) {
+        if let Some((layout_handle, image_handle)) = tile_atlases.atlases.get(tileset_id) {
+            let atlas = TextureAtlas{ 
+                layout: layout_handle.clone(),
+                index: *index
+            };
+            return Sprite {
+                image: image_handle.clone(),
+                texture_atlas: Some(atlas),
+                custom_size: Some(Vec2::splat(TILE_SIZE)),
+                ..default()
+                };
+        } else {
+            warn!("Tile '{}' references missing tileset '{}'", asset_id, tileset_id);
+            Sprite {
+                color: tile_color(asset_id),
+                custom_size: Some(Vec2::splat(TILE_SIZE)),
+                ..default()
+             }
         }
     } else {
+        debug!("No atlas label found for asset_id '{}', using color fallback", asset_id);
         Sprite {
             color: tile_color(asset_id),
             custom_size: Some(Vec2::splat(TILE_SIZE)),
@@ -86,14 +101,17 @@ fn update_tiles(
     commands: &mut Commands,
     world_ctx: &mut WorldContext,
     tiles: &[TileData],
-    tile_textures: &TileTextures,
+    tile_atlases: &TileAtlases,
 ) {
     let mut seen = HashSet::new();
 
     for tile in tiles {
         let key = (tile.x, tile.y);
         seen.insert(key);
-        let sprite = tile_sprite(&tile.asset_id, tile_textures);
+        let sprite = tile_sprite(&tile.asset_id, tile_atlases);
+        if tile.x == 22 && tile.y == 28 {
+            info!("Tile ({}, {}) asset_id='{}' has_atlas={}", tile.x, tile.y, tile.asset_id, sprite.texture_atlas.is_some());
+        }
         let x = tile.x as f32 * TILE_SIZE;
         let y = -(tile.y as f32 * TILE_SIZE);
 

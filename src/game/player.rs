@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use super::animation::{AnimatedSprite, AnimationState};
 use crate::{
     available_sprites::AvailableSprites,
-    game::{animation::load_sheet_animations, world::TILE_SIZE},
+    game::{animation::load_animations_from_manifest, world::TILE_SIZE},
     network::{NetworkConnection, NetworkEvent},
     ui::character_select::SelectedCharacter,
 };
@@ -81,23 +81,30 @@ pub fn spawn_player(
     selected: Option<Res<SelectedCharacter>>,
     available_sprites: Res<AvailableSprites>,
 ) {
-    let sheet_handle = selected
+    let sprite_entry = selected
         .as_ref()
         .and_then(|sc| sc.0.sprite_id.as_ref())
-        .and_then(|id| {
-            available_sprites
-                .sprites
-                .iter()
-                .find(|s| &s.id == id)
-                .and_then(|s| s.handle.clone())
-        });
+        .and_then(|id| available_sprites.sprites.iter().find(|s| &s.id == id));
 
-    let Some(sheet_handle) = sheet_handle else {
+    let Some(sprite_entry) = sprite_entry else {
         warn!("No sprite selected or sprite not found — cannot spawn player");
         return;
     };
 
-    let animations = load_sheet_animations(sheet_handle.clone());
+    let Some(sheet_handle) = sprite_entry.handle.clone() else {
+        warn!("Sprite '{}' handle not yet loaded", sprite_entry.id);
+        return;
+    };
+
+    let animations = load_animations_from_manifest(
+        sheet_handle.clone(),
+        sprite_entry.cell_width,
+        sprite_entry.cell_height,
+        &sprite_entry.animations,
+    );
+
+    let cell_w = sprite_entry.cell_width as f32;
+    let cell_h = sprite_entry.cell_height as f32;
 
     let mut sprite = Sprite {
         image: sheet_handle,
@@ -105,12 +112,12 @@ pub fn spawn_player(
     };
     sprite.rect = Some(bevy::math::Rect {
         min: Vec2::ZERO,
-        max: Vec2::new(48.0, 64.0),
+        max: Vec2::new(cell_w, cell_h),
     });
 
     commands.spawn((
         sprite,
-        Transform::from_xyz(0.0, 16.0, 1.0).with_scale(Vec3::splat(1.5)),
+        Transform::from_xyz(0.0, 16.0, 1.0).with_scale(Vec3::splat(2.0)),
         Player {
             speed: 150.0,
             player_id: String::new(),
@@ -118,7 +125,7 @@ pub fn spawn_player(
         AnimatedSprite {
             current_state: AnimationState::Idle,
             animations,
-            timer: Timer::from_seconds(0.15, TimerMode::Repeating),
+            timer: Timer::from_seconds(0.12, TimerMode::Repeating),
         },
         ServerPosition::default(),
         PlayerMovement::default(),
@@ -291,16 +298,15 @@ pub fn move_player(
                     AnimationState::WalkWest
                 };
                 animated.current_state = walk_state;
-                movement.last_direction = walk_state; // ← track last direction
+                movement.last_direction = walk_state;
             }
         } else if animated.current_state != AnimationState::Attack || attack_finished {
-            // Use idle frame from the last direction's row
+            // Transition to the idle facing the last direction walked
             animated.current_state = match movement.last_direction {
-                AnimationState::WalkNorth => AnimationState::Idle,
-                AnimationState::WalkSouth => AnimationState::Idle,
-                AnimationState::WalkEast => AnimationState::Idle,
-                AnimationState::WalkWest => AnimationState::Idle,
-                _ => AnimationState::Idle,
+                AnimationState::WalkNorth => AnimationState::IdleNorth,
+                AnimationState::WalkEast  => AnimationState::IdleEast,
+                AnimationState::WalkWest  => AnimationState::IdleWest,
+                _                         => AnimationState::IdleSouth,
             };
         }
 
@@ -335,28 +341,31 @@ pub fn apply_player_sprite(
         return;
     };
 
-    let sheet_handle = available_sprites
+    let sprite_entry = available_sprites
         .sprites
         .iter()
-        .find(|s| &s.id == sprite_id)
-        .and_then(|s| s.handle.clone());
+        .find(|s| &s.id == sprite_id);
 
-    let Some(handle) = sheet_handle else {
+    let Some(entry) = sprite_entry else {
         warn!("Sprite '{}' not found in available sprites", sprite_id);
         return;
     };
+    let Some(handle) = entry.handle.clone() else {
+        return;
+    };
+    let (cell_w, cell_h) = (entry.cell_width, entry.cell_height);
+    let anim_defs = entry.animations.clone();
 
     if let Ok((mut sprite, mut animated, mut transform)) = player_query.get_single_mut() {
         sprite.image = handle.clone();
         sprite.rect = Some(bevy::math::Rect {
             min: Vec2::ZERO,
-            max: Vec2::new(48.0, 64.0),
+            max: Vec2::new(cell_w as f32, cell_h as f32),
         });
-        // Replace animations with sheet-based ones
-        animated.animations = load_sheet_animations(handle);
+        animated.animations = load_animations_from_manifest(handle, cell_w, cell_h, &anim_defs);
         animated.current_state = AnimationState::Idle;
         // Fix scale for sheet sprites
-        transform.scale = Vec3::splat(1.5);
+        transform.scale = Vec3::splat(2.0);
         info!("Applied player sprite: {}", sprite_id);
     }
 }
@@ -467,7 +476,7 @@ pub fn camera_follow(
 ) {
     if let (Ok(player), Ok(mut camera)) = (player_query.get_single(), camera_query.get_single_mut())
     {
-        camera.translation.x = player.translation.x;
-        camera.translation.y = player.translation.y;
+        camera.translation.x = player.translation.x.round();
+        camera.translation.y = player.translation.y.round();
     }
 }
